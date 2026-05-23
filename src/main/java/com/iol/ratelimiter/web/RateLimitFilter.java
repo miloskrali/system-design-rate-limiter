@@ -47,6 +47,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         String apiKey = request.getHeader(API_KEY_HEADER);
 
         if (apiKey == null || apiKey.isBlank()) {
+            log.warn("REJECTED  path={} reason=missing-api-key ip={}", request.getRequestURI(), request.getRemoteAddr());
             sendJson(response, HttpStatus.UNAUTHORIZED, "{\"error\": \"Missing X-API-Key header\"}");
             return;
         }
@@ -60,10 +61,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
             if (!decision.allowed()) {
                 response.setHeader("Retry-After", String.valueOf(decision.retryAfterSeconds()));
                 counter("ratelimit.requests.denied", apiKey).increment();
+                log.warn("DENIED    apiKey={} path={} retryAfter={}s", apiKey, request.getRequestURI(), decision.retryAfterSeconds());
                 sendJson(response, HttpStatus.TOO_MANY_REQUESTS, "{\"error\": \"Rate limit exceeded\"}");
                 return;
             }
 
+            log.info("ALLOWED   apiKey={} path={} remaining={}", apiKey, request.getRequestURI(), decision.tokensRemaining());
             counter("ratelimit.requests.allowed", apiKey).increment();
             chain.doFilter(request, response);
 
