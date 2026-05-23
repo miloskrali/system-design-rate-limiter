@@ -13,6 +13,8 @@ public class TokenBucketRateLimiter implements RateLimiter {
     private final ConcurrentHashMap<String, Bucket> buckets = new ConcurrentHashMap<>();
 
     public TokenBucketRateLimiter(double capacity, double refillRatePerSecond) {
+        if (capacity <= 0) throw new IllegalArgumentException("capacity must be > 0, got: " + capacity);
+        if (refillRatePerSecond < 0) throw new IllegalArgumentException("refillRatePerSecond must be >= 0, got: " + refillRatePerSecond);
         this.capacity = capacity;
         this.refillRatePerNano = refillRatePerSecond / 1_000_000_000.0;
     }

@@ -28,6 +28,7 @@ class Bucket {
 
         if (tokens >= 1.0) {
             tokens -= 1.0;
+            // cast to int — fractional tokens are truncated (conservative: reports fewer than actual)
             return new RateLimitDecision(true, (int) tokens, 0L);
         }
 
