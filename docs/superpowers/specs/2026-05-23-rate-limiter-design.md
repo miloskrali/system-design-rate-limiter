@@ -131,6 +131,58 @@ Allows evaluators to test the rate limiter end-to-end with a simple `curl` comma
 
 ---
 
+## Observability: Metrics (Prometheus + Grafana)
+
+**Dependency:** `micrometer-registry-prometheus` — adds `/actuator/prometheus` endpoint automatically.
+
+### Metrics instrumented in `RateLimitFilter`
+
+| Metric name | Type | Tags | Description |
+|---|---|---|---|
+| `ratelimit.requests.allowed` | Counter | `apiKey` | Requests that passed through |
+| `ratelimit.requests.denied` | Counter | `apiKey` | Requests rejected with 429 |
+
+Both counters are incremented inside the filter after `rateLimiter.check()` returns. No changes to the algorithm layer — observability stays in the web layer.
+
+### Viewing metrics
+
+```bash
+# Raw Prometheus format (scraped by Prometheus server)
+curl http://localhost:8080/actuator/prometheus
+
+# Example output:
+ratelimit_requests_allowed_total{apiKey="trader-abc"} 47.0
+ratelimit_requests_denied_total{apiKey="trader-abc"} 3.0
+```
+
+### Deployment: Docker Compose
+
+`docker-compose.yml` at project root spins up three services:
+
+```
+app        → Spring Boot app on :8080
+prometheus → scrapes /actuator/prometheus every 15s, UI on :9090
+grafana    → connects to Prometheus, dashboard on :3000
+```
+
+Prometheus config (`prometheus.yml`):
+```yaml
+scrape_configs:
+  - job_name: rate-limiter
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['app:8080']
+    metrics_path: /actuator/prometheus
+```
+
+Grafana dashboard (pre-provisioned via JSON) shows:
+- Requests allowed vs denied over time (rate graph)
+- Per-client breakdown (top N clients by denied requests)
+
+This covers both **metrics** and **ease of deployment** from the challenge nice-to-haves. The evaluator runs `docker-compose up` and the full stack is live.
+
+---
+
 ## Error Handling
 
 | Condition | Response | Body |
@@ -175,6 +227,20 @@ Test config: `capacity: 3, refill-rate: 100.0` — low limits for fast, determin
 
 ---
 
+## Deliverable: DESIGN.md (challenge requirement)
+
+The challenge requires a `DESIGN.md` at the project root explaining architectural choices, trade-offs, and AI usage. This is separate from the internal spec.
+
+**Sections to include in DESIGN.md:**
+1. Problem & algorithm choice (Token Bucket + rationale for broker context)
+2. Architecture overview (package structure, plain Java core)
+3. Key design decisions (thread safety, client identification, RateLimitDecision record)
+4. Observability (Prometheus + Grafana)
+5. How AI was used (Claude Code assisted with scaffolding and design; all code understood and reviewed by the author)
+6. Trade-offs & what would change in production (Redis for distributed state, persistent metrics, auth integration)
+
+---
+
 ## Trade-offs & Decisions Summary
 
 | Decision | Choice | Reason |
@@ -185,3 +251,5 @@ Test config: `capacity: 3, refill-rate: 100.0` — low limits for fast, determin
 | Thread safety | `synchronized` per Bucket | Simple, correct, easy to explain in interview |
 | Client ID | `X-API-Key` header | IP unreliable behind NAT/VPN in broker context |
 | Framework coupling | Core is plain Java | Testable without Spring; follows APOSD principles |
+| Metrics | Prometheus + Grafana | IOL's actual stack; covers observability + ease of deployment |
+| Deployment | Docker Compose | Single `docker-compose up` to run app + Prometheus + Grafana |
