@@ -1,0 +1,12 @@
+rate-limiter:
+  capacity: 10
+  refill-rate: 0.1667   # tokens/second ≈ 10 tokens per 60s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus
+  endpoint:
+    prometheus:
+      enabled: true
