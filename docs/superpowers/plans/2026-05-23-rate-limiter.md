@@ -6,7 +6,7 @@
 
 **Architecture:** Plain Java core (`algorithm/`) with zero Spring annotations — testable with `new`. Spring wires the core as a bean in `config/`. The HTTP layer (`web/`) reads `X-API-Key`, calls the rate limiter, and sets RFC 6585 response headers. Metrics are instrumented via Micrometer and scraped by Prometheus.
 
-**Tech Stack:** Java 21, Spring Boot 3.3, Micrometer + Prometheus, Grafana 10, Docker Compose, JUnit 5, AssertJ, MockMvc.
+**Tech Stack:** Java 21, Spring Boot 3.3, Micrometer + Prometheus, Loki 2.9, Promtail 2.9, Grafana 10, Docker Compose, JUnit 5, AssertJ, MockMvc.
 
 ---
 
@@ -48,9 +48,13 @@ src/test/java/com/iol/ratelimiter/
 
 grafana/provisioning/
 ├── datasources/prometheus.yml                              ← Task 7
+├── datasources/loki.yml                                    ← Task 9
 └── dashboards/
     ├── dashboard.yml                                       ← Task 7
-    └── rate-limiter.json                                   ← Task 7
+    └── rate-limiter.json                                   ← Task 7 + Task 9
+
+loki-config.yml                                             ← Task 9
+promtail-config.yml                                         ← Task 9
 ```
 
 ---
@@ -1261,11 +1265,163 @@ git commit -m "docs: add DESIGN.md — architectural choices, trade-offs, AI usa
 
 ---
 
+## Task 9: Loki + Promtail — Log Visualization in Grafana
+
+**Files:**
+- Create: `loki-config.yml`
+- Create: `promtail-config.yml`
+- Modify: `docker-compose.yml` — add `loki` and `promtail` services
+- Create: `grafana/provisioning/datasources/loki.yml`
+- Modify: `grafana/provisioning/dashboards/rate-limiter.json` — add logs panel
+
+- [x] **Step 1: Create `loki-config.yml`**
+
+```yaml
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v12
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+```
+
+- [x] **Step 2: Create `promtail-config.yml`**
+
+```yaml
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: container
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: stream
+    pipeline_stages:
+      - docker: {}
+```
+
+- [x] **Step 3: Add Loki datasource to Grafana provisioning**
+
+Create `grafana/provisioning/datasources/loki.yml`:
+```yaml
+apiVersion: 1
+datasources:
+  - name: Loki
+    type: loki
+    uid: loki
+    url: http://loki:3100
+    isDefault: false
+    jsonData:
+      maxLines: 1000
+```
+
+- [x] **Step 4: Add `loki` and `promtail` services to `docker-compose.yml`**
+
+```yaml
+  loki:
+    image: grafana/loki:2.9.0
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml:ro
+    command: -config.file=/etc/loki/local-config.yaml
+    depends_on:
+      - app
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    volumes:
+      - ./promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+```
+
+Also add `loki` and `promtail` to Grafana's `depends_on`.
+
+- [x] **Step 5: Add logs panel to Grafana dashboard**
+
+Add a fourth panel to `rate-limiter.json` (after the two table panels, `y: 17`):
+
+```json
+{
+  "datasource": { "type": "loki", "uid": "loki" },
+  "gridPos": { "h": 10, "w": 24, "x": 0, "y": 17 },
+  "id": 4,
+  "options": {
+    "dedupStrategy": "none",
+    "enableLogDetails": true,
+    "showTime": true,
+    "sortOrder": "Descending",
+    "wrapLogMessage": false
+  },
+  "targets": [
+    {
+      "datasource": { "type": "loki", "uid": "loki" },
+      "expr": "{container=~\".*app.*\"} |= \"\" | line_format \"{{.line}}\"",
+      "refId": "A"
+    }
+  ],
+  "title": "Application Logs",
+  "type": "logs"
+}
+```
+
+- [x] **Step 6: Commit**
+
+```bash
+git add loki-config.yml promtail-config.yml docker-compose.yml \
+        grafana/provisioning/datasources/loki.yml \
+        grafana/provisioning/dashboards/rate-limiter.json
+git commit -m "feat: add Loki + Promtail for log visualization in Grafana"
+```
+
+---
+
 ## Final Verification
 
 - [ ] `mvn verify` — all tests pass, jar builds
-- [ ] `docker-compose up --build` — all three services start, Grafana dashboard visible
+- [ ] `docker-compose up --build` — all five services start, Grafana dashboard visible
 - [ ] `curl http://localhost:8080/ping -H "X-API-Key: test"` — returns `{"status":"ok",...}`
 - [ ] After 10 requests with the same key: `curl` returns HTTP 429 with `Retry-After` header
 - [ ] `http://localhost:9090` — Prometheus target `rate-limiter` shows `UP`
-- [ ] `http://localhost:3000` — Grafana "Rate Limiter" dashboard shows allowed/denied counters
+- [ ] `http://localhost:3000` — Grafana "Rate Limiter" dashboard shows allowed/denied counters and live logs

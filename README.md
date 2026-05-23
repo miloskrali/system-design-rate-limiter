@@ -17,10 +17,11 @@ mvn package -q
 docker-compose up --build
 ```
 
-| Service    | URL                              |
-|------------|----------------------------------|
-| App        | http://localhost:8080            |
-| Prometheus | http://localhost:9090            |
+| Service    | URL                                 |
+|------------|-------------------------------------|
+| App        | http://localhost:8080               |
+| Prometheus | http://localhost:9090               |
+| Loki       | http://localhost:3100               |
 | Grafana    | http://localhost:3000 (admin/admin) |
 
 ---

@@ -131,11 +131,13 @@ Allows evaluators to test the rate limiter end-to-end with a simple `curl` comma
 
 ---
 
-## Observability: Metrics (Prometheus + Grafana)
+## Observability: Metrics + Logs (Prometheus + Loki + Grafana)
+
+### Metrics — Micrometer + Prometheus
 
 **Dependency:** `micrometer-registry-prometheus` — adds `/actuator/prometheus` endpoint automatically.
 
-### Metrics instrumented in `RateLimitFilter`
+#### Metrics instrumented in `RateLimitFilter`
 
 | Metric name | Type | Tags | Description |
 |---|---|---|---|
@@ -144,25 +146,35 @@ Allows evaluators to test the rate limiter end-to-end with a simple `curl` comma
 
 Both counters are incremented inside the filter after `rateLimiter.check()` returns. No changes to the algorithm layer — observability stays in the web layer.
 
-### Viewing metrics
+### Logs — Structured logging + Loki + Promtail
 
-```bash
-# Raw Prometheus format (scraped by Prometheus server)
-curl http://localhost:8080/actuator/prometheus
+`RateLimitFilter` emits one structured log line per request:
 
-# Example output:
-ratelimit_requests_allowed_total{apiKey="trader-abc"} 47.0
-ratelimit_requests_denied_total{apiKey="trader-abc"} 3.0
+| Level | Event | Fields |
+|---|---|---|
+| `INFO` | `ALLOWED` | `apiKey`, `path`, `remaining` |
+| `WARN` | `DENIED` | `apiKey`, `path`, `retryAfter` |
+| `WARN` | `REJECTED` | `path`, `reason=missing-api-key`, `ip` |
+
+Example output:
 ```
+INFO  ALLOWED   apiKey=trader-abc path=/ping remaining=9
+WARN  DENIED    apiKey=trader-abc path=/ping retryAfter=6s
+WARN  REJECTED  path=/ping reason=missing-api-key ip=127.0.0.1
+```
+
+Promtail reads container logs from the Docker socket and ships them to Loki. Grafana queries Loki to display a live log panel alongside the metrics dashboard.
 
 ### Deployment: Docker Compose
 
-`docker-compose.yml` at project root spins up three services:
+`docker-compose.yml` at project root spins up five services:
 
 ```
 app        → Spring Boot app on :8080
 prometheus → scrapes /actuator/prometheus every 15s, UI on :9090
-grafana    → connects to Prometheus, dashboard on :3000
+loki       → log storage, internal on :3100
+promtail   → reads Docker container logs, ships to Loki
+grafana    → connects to Prometheus + Loki, dashboard on :3000
 ```
 
 Prometheus config (`prometheus.yml`):
@@ -177,9 +189,10 @@ scrape_configs:
 
 Grafana dashboard (pre-provisioned via JSON) shows:
 - Requests allowed vs denied over time (rate graph)
-- Per-client breakdown (top N clients by denied requests)
+- Per-client breakdown (denied and allowed totals)
+- Live log stream filtered to DENIED and REJECTED events
 
-This covers both **metrics** and **ease of deployment** from the challenge nice-to-haves. The evaluator runs `docker-compose up` and the full stack is live.
+This covers **metrics**, **logs**, and **ease of deployment** from the challenge nice-to-haves. The evaluator runs `docker-compose up` and the full stack is live.
 
 ---
 

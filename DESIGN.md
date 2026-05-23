@@ -56,12 +56,23 @@ absent the request is rejected with 401.
 
 ## Observability
 
-Micrometer counters `ratelimit.requests.allowed` and
+Two complementary signals, both visible in the same Grafana dashboard:
+
+**Metrics** — Micrometer counters `ratelimit.requests.allowed` and
 `ratelimit.requests.denied` (tagged by `apiKey`) are scraped by Prometheus
-and visualized in a pre-provisioned Grafana dashboard.
+every 15 seconds.
+
+**Logs** — `RateLimitFilter` emits one structured line per request:
+```
+INFO  ALLOWED   apiKey=trader-abc path=/ping remaining=9
+WARN  DENIED    apiKey=trader-abc path=/ping retryAfter=6s
+WARN  REJECTED  path=/ping reason=missing-api-key ip=127.0.0.1
+```
+Promtail reads container logs via Docker socket and ships them to Loki.
+Grafana queries both Prometheus and Loki in the same pre-provisioned dashboard.
 
 ```bash
-docker-compose up   # starts app + Prometheus (:9090) + Grafana (:3000)
+docker-compose up --build   # app + Prometheus + Loki + Promtail + Grafana
 ```
 
 This matches IOL's actual observability stack.
