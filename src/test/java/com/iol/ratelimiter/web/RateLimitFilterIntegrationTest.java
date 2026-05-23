@@ -14,7 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
         "rate-limiter.capacity=3",
-        "rate-limiter.refill-rate=100.0"   // fast refill so tests don't need to wait
+        "rate-limiter.refill-rate=0.001"   // very slow refill — bucket stays empty between MockMvc requests
 })
 class RateLimitFilterIntegrationTest {
 
