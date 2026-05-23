@@ -38,7 +38,8 @@ The `algorithm/` package has zero Spring annotations and is testable with `new`.
 ```
 src/main/java/com/iol/ratelimiter/
 ├── algorithm/
-│   ├── RateLimiter.java              # Interface: boolean allowRequest(String clientId)
+│   ├── RateLimiter.java              # Interface: RateLimitDecision check(String clientId)
+│   ├── RateLimitDecision.java        # Record: allowed, tokensRemaining, retryAfterSeconds
 │   ├── TokenBucketRateLimiter.java   # Implementation — pure Java, no Spring
 │   └── Bucket.java                   # Per-client state (tokens, lastRefillTime) — package-private
 ├── config/
@@ -56,10 +57,11 @@ src/main/java/com/iol/ratelimiter/
 HTTP request
   → RateLimitFilter
       → reads X-API-Key header (401 if missing)
-      → calls rateLimiter.allowRequest(apiKey)
+      → calls rateLimiter.check(apiKey) → RateLimitDecision(allowed, tokensRemaining, retryAfterSeconds)
           → TokenBucketRateLimiter looks up / creates Bucket for that client
           → Bucket.tryConsume() — synchronized on bucket instance
-      → 429 if denied (with X-RateLimit-* headers)
+      → sets X-RateLimit-Limit and X-RateLimit-Remaining on all responses
+      → 429 + Retry-After header if denied
       → passes through if allowed
   → PingController → 200 OK
 ```
@@ -76,8 +78,10 @@ On each `tryConsume()` call:
 1. Compute `elapsed = now - lastRefillTime`
 2. Add `elapsed × refillRate` tokens, clamped to `capacity`
 3. Update `lastRefillTime = now`
-4. If `tokens >= 1.0`: subtract 1.0, return `true`
-5. Otherwise: return `false`
+4. If `tokens >= 1.0`: subtract 1.0, return `RateLimitDecision(allowed=true, remaining=floor(tokens), retryAfterSeconds=0)`
+5. Otherwise: return `RateLimitDecision(allowed=false, remaining=0, retryAfterSeconds=ceil((1-tokens)/refillRate))`
+
+`RateLimitDecision` is a Java record — immutable, returned atomically from a single `synchronized` call. The filter gets all header values in one shot with no TOCTOU gap.
 
 ### Thread safety
 
