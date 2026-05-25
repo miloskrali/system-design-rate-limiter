@@ -60,7 +60,7 @@ Retry-After: 6
 mvn test
 ```
 
-17 tests — unit (algorithm) + integration (Spring MockMvc).
+18 tests — unit (algorithm) + integration (Spring MockMvc).
 
 ---
 
