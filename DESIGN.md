@@ -84,6 +84,7 @@ This matches IOL's actual observability stack.
 | Storage | In-memory | Fast, simple. Multiple instances would have independent counters — acceptable for a prototype; Redis would solve this in production |
 | Algorithms | Token Bucket only | Depth over breadth. One well-understood algorithm > three half-baked ones |
 | Thread safety | `synchronized` | Simple and correct. AtomicReference+CAS would be faster under extreme contention but adds complexity without measurable benefit at typical broker traffic |
+| Bucket eviction | Daemon thread every 5 min, TTL 1 hour | Prevents unbounded memory growth for long-running deployments with many distinct clients. `lastAccessTime` is updated inside the existing `synchronized` block — no extra locking overhead |
 
 ## How I Used AI
 
