@@ -10,11 +10,14 @@ package com.iol.ratelimiter.algorithm;
 class Bucket {
 
     private double tokens;
-    private long lastRefillTime; // nanoseconds
+    private long lastRefillTime;  // nanoseconds
+    private long lastAccessTime;  // nanoseconds — used for eviction
 
     Bucket(double initialTokens) {
         this.tokens = initialTokens;
-        this.lastRefillTime = System.nanoTime();
+        long now = System.nanoTime();
+        this.lastRefillTime = now;
+        this.lastAccessTime = now;
     }
 
     /**
@@ -24,6 +27,7 @@ class Bucket {
      * @param refillRatePerNano tokens added per nanosecond
      */
     synchronized RateLimitDecision tryConsume(double capacity, double refillRatePerNano) {
+        lastAccessTime = System.nanoTime();
         refill(capacity, refillRatePerNano);
 
         if (tokens >= 1.0) {
@@ -38,6 +42,10 @@ class Bucket {
                 : Long.MAX_VALUE;
 
         return new RateLimitDecision(false, 0, retryAfterSeconds);
+    }
+
+    synchronized long lastAccessTime() {
+        return lastAccessTime;
     }
 
     private void refill(double capacity, double refillRatePerNano) {
